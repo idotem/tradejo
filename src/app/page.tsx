@@ -236,6 +236,7 @@ export default function Home() {
     if (storedTrades) {
       try {
         // Parse stored trades and convert date strings back to Date objects
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const parsedTrades = JSON.parse(storedTrades).map((trade: any) => ({
           ...trade,
           date: new Date(trade.date),
