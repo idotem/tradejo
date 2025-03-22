@@ -55,6 +55,7 @@ function transformToTrades(table: any): Trade[] {
       return;
     }
 
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [_, year, month, day] = dateMatch;
     const date = new Date(Number(year), Number(month), Number(day));
 
