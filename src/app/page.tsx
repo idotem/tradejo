@@ -376,6 +376,33 @@ export default function Home() {
     );
   };
 
+  // Update the calculations to include unique trading days
+  const totalStats = trades.reduce(
+    (acc, trade) => {
+      // Get date string to count unique days
+      const dateStr = trade.date.toDateString();
+      if (!acc.tradingDays.has(dateStr)) {
+        acc.tradingDays.add(dateStr);
+      }
+
+      return {
+        ...acc,
+        totalBuyPrice: acc.totalBuyPrice + trade.totalBuyPrice,
+        netTotal: acc.netTotal + trade.netTotal,
+        tradeCount: acc.tradeCount + 1,
+      };
+    },
+    {
+      totalBuyPrice: 0,
+      netTotal: 0,
+      tradeCount: 0,
+      tradingDays: new Set<string>(),
+    }
+  );
+
+  const totalPercentage =
+    (totalStats.netTotal / totalStats.totalBuyPrice) * 100;
+
   return (
     <div
       className={`${
@@ -383,13 +410,35 @@ export default function Home() {
       } h-screen flex flex-col`}
     >
       <div className="flex justify-between items-center p-6">
-        <h1
-          className={`${
-            theme === "dark" ? "text-white" : "text-black"
-          } text-2xl font-bold`}
-        >
-          Trading Journal
-        </h1>
+        <div className="flex items-center gap-8">
+          <h1
+            className={`${
+              theme === "dark" ? "text-white" : "text-black"
+            } text-2xl font-bold`}
+          >
+            Trading Journal
+          </h1>
+          <div className={`${theme === "dark" ? "text-white" : "text-black"}`}>
+            <div className="text-sm opacity-80">
+              {totalStats.tradeCount} Trades ({totalStats.tradingDays.size}{" "}
+              Days) | Total Traded: ${totalStats.totalBuyPrice.toFixed(2)}
+            </div>
+            <div
+              className={`text-lg font-semibold ${
+                totalPercentage >= 0
+                  ? theme === "dark"
+                    ? "text-green-400"
+                    : "text-green-600"
+                  : theme === "dark"
+                  ? "text-red-400"
+                  : "text-red-600"
+              }`}
+            >
+              Net: ${totalStats.netTotal.toFixed(2)} (
+              {totalPercentage.toFixed(2)}%)
+            </div>
+          </div>
+        </div>
         <div className="">
           <button
             onClick={loadTradesFromSheet}
