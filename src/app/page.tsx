@@ -19,6 +19,8 @@ import {
   Calendar as CalendarIcon,
 } from "lucide-react";
 import { fetchTradesFromSheet } from "./utils/sheetParser";
+import { DateRange } from "react-day-picker";
+import { DatePickerWithRange } from "@/components/ui/date-range-picker";
 
 const locales = {
   "en-US": enUS,
@@ -229,6 +231,7 @@ export default function Home() {
   const [trades, setTrades] = useState<Trade[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [dateRange, setDateRange] = useState<DateRange | undefined>();
 
   // Add this useEffect to load trades from localStorage on component mount
   useEffect(() => {
@@ -376,13 +379,79 @@ export default function Home() {
     );
   };
 
-  // Update the calculations to include unique trading days
-  const totalStats = trades.reduce(
+  // Filter trades based on date range
+  const filteredTrades = trades.filter((trade) => {
+    if (!dateRange?.from && !dateRange?.to) return true;
+    const tradeDate = new Date(trade.date);
+
+    if (dateRange.from && dateRange.to) {
+      return tradeDate >= dateRange.from && tradeDate <= dateRange.to;
+    }
+
+    if (dateRange.from) {
+      return tradeDate >= dateRange.from;
+    }
+
+    if (dateRange.to) {
+      return tradeDate <= dateRange.to;
+    }
+
+    return true;
+  });
+
+  // Update the stats calculation to track both dollar and percentage values
+  const stats = filteredTrades.reduce(
     (acc, trade) => {
-      // Get date string to count unique days
       const dateStr = trade.date.toDateString();
+
+      // Track daily totals for max calculation
+      acc.dailyTotals.set(
+        dateStr,
+        (acc.dailyTotals.get(dateStr) || 0) + trade.totalBuyPrice
+      );
+
+      // Update max daily amount
+      acc.maxDailyAmount = Math.max(
+        acc.maxDailyAmount,
+        acc.dailyTotals.get(dateStr) || 0
+      );
+
       if (!acc.tradingDays.has(dateStr)) {
         acc.tradingDays.add(dateStr);
+      }
+
+      const tradePercent = (trade.netTotal / trade.totalBuyPrice) * 100;
+
+      // Calculate holding time in minutes with better time parsing
+      let holdingTimeMinutes = 0;
+      if (trade.timeOfEntry && trade.timeOfExit) {
+        try {
+          // Extract hours and minutes from Date string format
+          const entryMatch = trade.timeOfEntry.match(
+            /Date\(\d+,\d+,\d+,(\d+),(\d+),\d+\)/
+          );
+          const exitMatch = trade.timeOfExit.match(
+            /Date\(\d+,\d+,\d+,(\d+),(\d+),\d+\)/
+          );
+
+          if (entryMatch && exitMatch) {
+            const entryHours = parseInt(entryMatch[1]);
+            const entryMinutes = parseInt(entryMatch[2]);
+            const exitHours = parseInt(exitMatch[1]);
+            const exitMinutes = parseInt(exitMatch[2]);
+
+            holdingTimeMinutes =
+              exitHours * 60 + exitMinutes - (entryHours * 60 + entryMinutes);
+
+            // Handle cases where trade goes past midnight
+            if (holdingTimeMinutes < 0) {
+              holdingTimeMinutes += 24 * 60;
+            }
+          }
+        } catch (e) {
+          console.error("Error calculating holding time:", e);
+          console.error("Problem trade:", trade);
+        }
       }
 
       return {
@@ -390,6 +459,46 @@ export default function Home() {
         totalBuyPrice: acc.totalBuyPrice + trade.totalBuyPrice,
         netTotal: acc.netTotal + trade.netTotal,
         tradeCount: acc.tradeCount + 1,
+        winCount: acc.winCount + (trade.netTotal > 0 ? 1 : 0),
+        lossCount: acc.lossCount + (trade.netTotal < 0 ? 1 : 0),
+        totalProfit:
+          acc.totalProfit + (trade.netTotal > 0 ? trade.netTotal : 0),
+        totalLoss: acc.totalLoss + (trade.netTotal < 0 ? trade.netTotal : 0),
+        largestWinPercent: Math.max(
+          acc.largestWinPercent,
+          tradePercent > 0 ? tradePercent : -Infinity
+        ),
+        largestLossPercent: Math.min(
+          acc.largestLossPercent,
+          tradePercent < 0 ? tradePercent : Infinity
+        ),
+        largestWinAmount: Math.max(
+          acc.largestWinAmount,
+          trade.netTotal > 0 ? trade.netTotal : -Infinity
+        ),
+        largestLossAmount: Math.min(
+          acc.largestLossAmount,
+          trade.netTotal < 0 ? trade.netTotal : Infinity
+        ),
+        // Track trades for calculating averages
+        winningTrades:
+          trade.netTotal > 0
+            ? [...acc.winningTrades, tradePercent]
+            : acc.winningTrades,
+        losingTrades:
+          trade.netTotal < 0
+            ? [...acc.losingTrades, tradePercent]
+            : acc.losingTrades,
+        winningHoldingTimes:
+          trade.netTotal > 0 && holdingTimeMinutes > 0
+            ? [...acc.winningHoldingTimes, holdingTimeMinutes]
+            : acc.winningHoldingTimes,
+        losingHoldingTimes:
+          trade.netTotal < 0 && holdingTimeMinutes > 0
+            ? [...acc.losingHoldingTimes, holdingTimeMinutes]
+            : acc.losingHoldingTimes,
+        dailyTotals: acc.dailyTotals,
+        maxDailyAmount: acc.maxDailyAmount,
       };
     },
     {
@@ -397,11 +506,49 @@ export default function Home() {
       netTotal: 0,
       tradeCount: 0,
       tradingDays: new Set<string>(),
+      winCount: 0,
+      lossCount: 0,
+      totalProfit: 0,
+      totalLoss: 0,
+      largestWinPercent: -Infinity,
+      largestLossPercent: Infinity,
+      largestWinAmount: -Infinity,
+      largestLossAmount: Infinity,
+      winningTrades: [] as number[],
+      losingTrades: [] as number[],
+      winningHoldingTimes: [] as number[],
+      losingHoldingTimes: [] as number[],
+      dailyTotals: new Map<string, number>(),
+      maxDailyAmount: 0,
     }
   );
 
-  const totalPercentage =
-    (totalStats.netTotal / totalStats.totalBuyPrice) * 100;
+  // Calculate average percentages
+  const avgWinPercent = stats.winningTrades.length
+    ? stats.winningTrades.reduce((a, b) => a + b, 0) /
+      stats.winningTrades.length
+    : 0;
+
+  const avgLossPercent = stats.losingTrades.length
+    ? stats.losingTrades.reduce((a, b) => a + b, 0) / stats.losingTrades.length
+    : 0;
+
+  const totalPercentage = (stats.netTotal / stats.maxDailyAmount) * 100;
+
+  // Calculate average holding times
+  const formatHoldingTime = (minutes: number) => {
+    return `${Math.round(minutes)}m`;
+  };
+
+  const avgWinHoldingTime = stats.winningHoldingTimes.length
+    ? stats.winningHoldingTimes.reduce((a, b) => a + b, 0) /
+      stats.winningHoldingTimes.length
+    : 0;
+
+  const avgLossHoldingTime = stats.losingHoldingTimes.length
+    ? stats.losingHoldingTimes.reduce((a, b) => a + b, 0) /
+      stats.losingHoldingTimes.length
+    : 0;
 
   return (
     <div
@@ -420,8 +567,9 @@ export default function Home() {
           </h1>
           <div className={`${theme === "dark" ? "text-white" : "text-black"}`}>
             <div className="text-sm opacity-80">
-              {totalStats.tradeCount} Trades ({totalStats.tradingDays.size}{" "}
-              Days) | Total Traded: ${totalStats.totalBuyPrice.toFixed(2)}
+              {stats.tradeCount} Trades ({stats.tradingDays.size} Days) | Total
+              Traded: ${stats.totalBuyPrice.toFixed(2)} | Max Daily: $
+              {stats.maxDailyAmount.toFixed(2)}
             </div>
             <div
               className={`text-lg font-semibold ${
@@ -434,12 +582,12 @@ export default function Home() {
                   : "text-red-600"
               }`}
             >
-              Net: ${totalStats.netTotal.toFixed(2)} (
-              {totalPercentage.toFixed(2)}%)
+              Net: ${stats.netTotal.toFixed(2)} ({totalPercentage.toFixed(2)}%)
             </div>
           </div>
         </div>
-        <div className="">
+        <div className="flex items-center gap-4">
+          <DatePickerWithRange date={dateRange} setDate={setDateRange} />
           <button
             onClick={loadTradesFromSheet}
             disabled={isLoading}
@@ -447,7 +595,7 @@ export default function Home() {
               theme === "dark"
                 ? "bg-green-800 hover:bg-green-900 text-white"
                 : "bg-green-300 hover:bg-green-200 text-black"
-            } px-4 py-2 rounded-lg mr-15 cursor-pointer`}
+            } px-4 py-2 rounded-lg cursor-pointer`}
           >
             {isLoading ? "Loading..." : "Load Trades"}
           </button>
@@ -457,23 +605,146 @@ export default function Home() {
 
       {error && <p className="text-red-500 px-6 mb-4">{error}</p>}
 
-      <div className="flex-1 px-6 pb-6">
-        <Calendar
-          localizer={localizer}
-          events={performanceToEvents(calculateDailyPerformance(trades))}
-          startAccessor="start"
-          endAccessor="end"
-          style={calendarStyles}
-          className="dark-calendar"
-          date={date}
-          onNavigate={(date) => setDate(date)}
-          view={view}
-          onView={(view) => setView(view)}
-          components={{
-            event: EventComponent,
-            toolbar: CustomToolbar,
-          }}
-        />
+      <div className="flex flex-1 px-6 pb-6 gap-6">
+        {/* Stats Panel */}
+        <div
+          className={`w-80 ${
+            theme === "dark" ? "bg-[#1a1a1a]" : "bg-white"
+          } rounded-lg p-4 space-y-4`}
+        >
+          <h2
+            className={`text-xl font-bold ${
+              theme === "dark" ? "text-white" : "text-black"
+            }`}
+          >
+            Trading Statistics
+          </h2>
+
+          {filteredTrades.length > 0 ? (
+            <>
+              <div className="space-y-3">
+                <StatsRow
+                  label="Win Rate"
+                  value={`${((stats.winCount / stats.tradeCount) * 100).toFixed(
+                    1
+                  )}%`}
+                  theme={theme}
+                />
+                <StatsRow
+                  label="Winning Trades"
+                  value={stats.winCount.toString()}
+                  theme={theme}
+                  isPositive={true}
+                />
+                <StatsRow
+                  label="Losing Trades"
+                  value={stats.lossCount.toString()}
+                  theme={theme}
+                  isPositive={false}
+                />
+                <StatsRow
+                  label="Average Trade"
+                  value={`$${(stats.netTotal / stats.tradeCount).toFixed(
+                    2
+                  )} (${totalPercentage.toFixed(2)}%)`}
+                  theme={theme}
+                  isPositive={stats.netTotal > 0}
+                />
+                <StatsRow
+                  label="Average Win"
+                  value={`$${(stats.totalProfit / stats.winCount || 0).toFixed(
+                    2
+                  )} (${avgWinPercent.toFixed(2)}%)`}
+                  theme={theme}
+                  isPositive={true}
+                />
+                <StatsRow
+                  label="Average Loss"
+                  value={`$${(stats.totalLoss / stats.lossCount || 0).toFixed(
+                    2
+                  )} (${avgLossPercent.toFixed(2)}%)`}
+                  theme={theme}
+                  isPositive={false}
+                />
+                <StatsRow
+                  label="Largest Win"
+                  value={`$${
+                    stats.largestWinAmount > -Infinity
+                      ? stats.largestWinAmount.toFixed(2)
+                      : "0.00"
+                  } (${
+                    stats.largestWinPercent > -Infinity
+                      ? stats.largestWinPercent.toFixed(2)
+                      : "0.00"
+                  }%)`}
+                  theme={theme}
+                  isPositive={true}
+                />
+                <StatsRow
+                  label="Largest Loss"
+                  value={`$${
+                    stats.largestLossAmount < Infinity
+                      ? stats.largestLossAmount.toFixed(2)
+                      : "0.00"
+                  } (${
+                    stats.largestLossPercent < Infinity
+                      ? stats.largestLossPercent.toFixed(2)
+                      : "0.00"
+                  }%)`}
+                  theme={theme}
+                  isPositive={false}
+                />
+                <StatsRow
+                  label="Profit Factor"
+                  value={`${Math.abs(
+                    stats.totalProfit / (stats.totalLoss || 1)
+                  ).toFixed(2)}`}
+                  theme={theme}
+                />
+                <StatsRow
+                  label="Avg Win Hold Time"
+                  value={formatHoldingTime(avgWinHoldingTime)}
+                  theme={theme}
+                />
+                <StatsRow
+                  label="Avg Loss Hold Time"
+                  value={formatHoldingTime(avgLossHoldingTime)}
+                  theme={theme}
+                />
+              </div>
+            </>
+          ) : (
+            <p
+              className={`text-sm ${
+                theme === "dark" ? "text-gray-400" : "text-gray-600"
+              }`}
+            >
+              No trades in selected date range
+            </p>
+          )}
+        </div>
+
+        {/* Calendar */}
+        <div className="flex-1">
+          <Calendar
+            localizer={localizer}
+            events={performanceToEvents(
+              calculateDailyPerformance(filteredTrades)
+            )}
+            startAccessor="start"
+            endAccessor="end"
+            style={calendarStyles}
+            className="dark-calendar"
+            date={date}
+            onNavigate={(date) => setDate(date)}
+            view={view}
+            onView={(view) => setView(view)}
+            components={{
+              event: EventComponent,
+              toolbar: CustomToolbar,
+            }}
+          />
+        </div>
       </div>
       <TradeDialog
         isOpen={!!selectedTrades}
@@ -483,3 +754,39 @@ export default function Home() {
     </div>
   );
 }
+
+// Add this component at the file level
+const StatsRow = ({
+  label,
+  value,
+  theme,
+  isPositive,
+}: {
+  label: string;
+  value: string;
+  theme: string;
+  isPositive?: boolean;
+}) => (
+  <div className="flex justify-between items-center">
+    <span className={`${theme === "dark" ? "text-gray-400" : "text-gray-600"}`}>
+      {label}
+    </span>
+    <span
+      className={`font-semibold ${
+        isPositive !== undefined
+          ? isPositive
+            ? theme === "dark"
+              ? "text-green-400"
+              : "text-green-600"
+            : theme === "dark"
+            ? "text-red-400"
+            : "text-red-600"
+          : theme === "dark"
+          ? "text-white"
+          : "text-black"
+      }`}
+    >
+      {value}
+    </span>
+  </div>
+);

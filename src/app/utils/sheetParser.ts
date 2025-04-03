@@ -63,8 +63,8 @@ function transformToTrades(table: any): Trade[] {
       id: trades.length, // Generate sequential IDs
       symbol: rowData[headers.indexOf("Symbol")],
       date: date,
-      timeOfEntry: rowData[headers.indexOf("Time of Entry")],
-      timeOfExit: rowData[headers.indexOf("Time of Exit")],
+      timeOfEntry: rowData[headers.indexOf("Time of entry")],
+      timeOfExit: rowData[headers.indexOf("Time of exit")],
       buys: Number(rowData[headers.indexOf("Buys")]),
       sells: Number(rowData[headers.indexOf("Sells")]),
       net: Number(rowData[headers.indexOf("Net")]),
@@ -85,9 +85,9 @@ function transformToTrades(table: any): Trade[] {
         rowData[headers.indexOf("What happened after exit")] || "",
       comment: rowData[headers.indexOf("Comment")] || "",
     };
+    console.log("TRADE: ", trade);
     trades.push(trade);
   });
-  console.log("TRADES: ", trades);
 
   return trades;
 }
