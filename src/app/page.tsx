@@ -1,12 +1,9 @@
 "use client";
 
 import { Calendar, dateFnsLocalizer, View } from "react-big-calendar";
-import format from "date-fns/format";
-import parse from "date-fns/parse";
-import startOfWeek from "date-fns/startOfWeek";
-import getDay from "date-fns/getDay";
+import { format, parse, startOfWeek, getDay } from "date-fns";
+import { enUS } from "date-fns/locale";
 import "react-big-calendar/lib/css/react-big-calendar.css";
-import enUS from "date-fns/locale/en-US";
 import "./calendar.css";
 import { useState, useEffect } from "react";
 import Trade from "./Trade";
@@ -21,6 +18,8 @@ import {
 import { fetchTradesFromSheet } from "./utils/sheetParser";
 import { DateRange } from "react-day-picker";
 import { DatePickerWithRange } from "@/components/ui/date-range-picker";
+import { findTradeImages } from "./utils/imageUtils";
+import Image from "next/image";
 
 const locales = {
   "en-US": enUS,
@@ -109,117 +108,192 @@ type TradeDialogProps = {
 // Add this new component before the Home component
 const TradeDialog = ({ isOpen, onClose, trades }: TradeDialogProps) => {
   const { theme } = useTheme();
+  const [selectedTrade, setSelectedTrade] = useState<Trade | null>(null);
+  const [showImages, setShowImages] = useState(false);
+  const [tradeImages, setTradeImages] = useState<string[]>([]);
+  const [isLoadingImages, setIsLoadingImages] = useState(false);
+
+  const handleViewImages = async (trade: Trade) => {
+    setSelectedTrade(trade);
+    setIsLoadingImages(true);
+    try {
+      const images = await findTradeImages(trade);
+      setTradeImages(images);
+      setShowImages(true);
+    } catch (error) {
+      console.error("Error loading images:", error);
+    } finally {
+      setIsLoadingImages(false);
+    }
+  };
 
   return (
-    <Dialog open={isOpen} onOpenChange={onClose}>
-      <DialogContent
-        className={`${
-          theme === "dark"
-            ? "dark bg-[#0a0a0a] text-white"
-            : "bg-gray-50 text-black"
-        } max-w-4xl max-h-[80vh] overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg`}
-      >
-        <DialogTitle className="text-xl font-bold mb-4">
-          Trades for {trades[0]?.date.toLocaleDateString()}
-        </DialogTitle>
-        <div className="space-y-6">
-          {trades.map((trade) => (
-            <div
-              key={trade.id}
-              className={`p-4 rounded-lg ${
-                trade.netTotal >= 0
-                  ? "bg-green-50 dark:bg-green-300/30"
-                  : "bg-red-50 dark:bg-red-300/30"
-              }`}
-            >
-              <div className="flex justify-between items-start mb-2">
-                <h3 className="text-lg font-semibold">{trade.symbol}</h3>
-                <span
-                  className={`font-bold ${
-                    trade.netTotal >= 0
-                      ? "text-green-700 dark:text-green-500"
-                      : "text-red-700 dark:text-red-500"
-                  }`}
-                >
-                  ${trade.netTotal.toFixed(2)} (
-                  {(trade.realizedPnLPercent * 100).toFixed(2)}%)
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4 text-lg">
-                <div
-                  className={`${
-                    theme === "dark" ? "text-white" : "text-black"
-                  }`}
-                >
-                  <p>
-                    <span className="font-semibold">Entry Time:</span>{" "}
-                    {trade.timeOfEntry}
-                  </p>
-                  <p>
-                    <span className="font-semibold">Exit Time:</span>{" "}
-                    {trade.timeOfExit}
-                  </p>
-                  <p>
-                    <span className="font-semibold">Shares:</span> {trade.buys}
-                  </p>
-                  <p>
-                    <span className="font-semibold">Avg Buy:</span> $
-                    {trade.averageBuyPrice.toFixed(2)}
-                  </p>
-                  <p>
-                    <span className="font-semibold">Avg Sell:</span> $
-                    {trade.averageSellPrice.toFixed(2)}
-                  </p>
-                  <p>
-                    <span className="font-semibold">Total Buy:</span> $
-                    {trade.totalBuyPrice.toFixed(2)}
-                  </p>
-                  <p>
-                    <span className="font-semibold">Total Sell:</span> $
-                    {trade.totalSoldPrice.toFixed(2)}
-                  </p>
-                  <p>
-                    <span className="font-semibold">Commission:</span> $
-                    {trade.commission.toFixed(2)}
-                  </p>
-                  <p>
-                    <span className="font-semibold">Realized PnL:</span> $
-                    {trade.realizedPnL.toFixed(2)}
-                  </p>
-                  <p>
-                    <span className="font-semibold">Net (incl. comm):</span> $
-                    {trade.netInclCommission.toFixed(2)}
-                  </p>
+    <>
+      <Dialog open={isOpen} onOpenChange={onClose}>
+        <DialogContent
+          className={`${
+            theme === "dark"
+              ? "dark bg-[#0a0a0a] text-white"
+              : "bg-gray-50 text-black"
+          } max-w-[70vw] max-h-[70vh] overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg`}
+        >
+          <DialogTitle className="text-xl font-bold mb-4">
+            Trades for {trades[0]?.date.toLocaleDateString()}
+          </DialogTitle>
+          <div className="space-y-6">
+            {trades.map((trade) => (
+              <div
+                key={trade.id}
+                className={`p-4 rounded-lg ${
+                  trade.netTotal >= 0
+                    ? "bg-green-50 dark:bg-green-300/30"
+                    : "bg-red-50 dark:bg-red-300/30"
+                }`}
+              >
+                <div className="flex justify-between items-start mb-2">
+                  <h3 className="text-lg font-semibold">{trade.symbol}</h3>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => handleViewImages(trade)}
+                      disabled={isLoadingImages}
+                      className={`px-3 py-1 rounded ${
+                        theme === "dark"
+                          ? "bg-gray-900 hover:bg-gray-800 text-white cursor-pointer"
+                          : "bg-gray-300 hover:bg-gray-200 text-black cursor-pointer"
+                      } ${
+                        isLoadingImages ? "opacity-50 cursor-not-allowed" : ""
+                      }`}
+                    >
+                      {isLoadingImages ? "Loading..." : "View Charts"}
+                    </button>
+                    <span
+                      className={`font-bold ${
+                        trade.netTotal >= 0
+                          ? "text-green-700 dark:text-green-500"
+                          : "text-red-700 dark:text-red-500"
+                      }`}
+                    >
+                      ${trade.netTotal.toFixed(2)} (
+                      {(trade.realizedPnLPercent * 100).toFixed(2)}%)
+                    </span>
+                  </div>
                 </div>
 
-                <div
-                  className={`${
-                    theme === "dark" ? "text-white" : "text-black"
-                  }`}
-                >
-                  <p className="whitespace-pre-wrap">
-                    <span className="font-semibold">Before Entry:</span>
-                    {"\n"}
-                    {trade.whatHappenedBeforeEnter}
-                  </p>
-                  <p className="whitespace-pre-wrap">
-                    <span className="font-semibold">After Exit:</span>
-                    {"\n"}
-                    {trade.whatHappenedAfterExit}
-                  </p>
-                  <p className="whitespace-pre-wrap">
-                    <span className="font-semibold">Comments:</span>
-                    {"\n"}
-                    {trade.comment}
-                  </p>
+                <div className="grid grid-cols-2 gap-4 text-lg">
+                  <div
+                    className={`${
+                      theme === "dark" ? "text-white" : "text-black"
+                    }`}
+                  >
+                    <p>
+                      <span className="font-semibold">Entry Time:</span>{" "}
+                      {trade.timeOfEntry}
+                    </p>
+                    <p>
+                      <span className="font-semibold">Exit Time:</span>{" "}
+                      {trade.timeOfExit}
+                    </p>
+                    <p>
+                      <span className="font-semibold">Shares:</span>{" "}
+                      {trade.buys}
+                    </p>
+                    <p>
+                      <span className="font-semibold">Avg Buy:</span> $
+                      {trade.averageBuyPrice.toFixed(2)}
+                    </p>
+                    <p>
+                      <span className="font-semibold">Avg Sell:</span> $
+                      {trade.averageSellPrice.toFixed(2)}
+                    </p>
+                    <p>
+                      <span className="font-semibold">Total Buy:</span> $
+                      {trade.totalBuyPrice.toFixed(2)}
+                    </p>
+                    <p>
+                      <span className="font-semibold">Total Sell:</span> $
+                      {trade.totalSoldPrice.toFixed(2)}
+                    </p>
+                    <p>
+                      <span className="font-semibold">Commission:</span> $
+                      {trade.commission.toFixed(2)}
+                    </p>
+                    <p>
+                      <span className="font-semibold">Realized PnL:</span> $
+                      {trade.realizedPnL.toFixed(2)}
+                    </p>
+                    <p>
+                      <span className="font-semibold">Net (incl. comm):</span> $
+                      {trade.netInclCommission.toFixed(2)}
+                    </p>
+                  </div>
+
+                  <div
+                    className={`${
+                      theme === "dark" ? "text-white" : "text-black"
+                    }`}
+                  >
+                    <p className="whitespace-pre-wrap">
+                      <span className="font-semibold">Before Entry:</span>
+                      {"\n"}
+                      {trade.whatHappenedBeforeEnter}
+                    </p>
+                    <p className="whitespace-pre-wrap">
+                      <span className="font-semibold">After Exit:</span>
+                      {"\n"}
+                      {trade.whatHappenedAfterExit}
+                    </p>
+                    <p className="whitespace-pre-wrap">
+                      <span className="font-semibold">Comments:</span>
+                      {"\n"}
+                      {trade.comment}
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
-          ))}
-        </div>
-      </DialogContent>
-    </Dialog>
+            ))}
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Image View Dialog */}
+      <Dialog open={showImages} onOpenChange={setShowImages}>
+        <DialogContent
+          className={`${
+            theme === "dark"
+              ? "dark bg-[#0a0a0a] text-white"
+              : "bg-gray-50 text-black"
+          } max-w-[90vw] max-h-[90vh] overflow-y-auto border border-gray-200 dark:border-gray-700 rounded-lg`}
+        >
+          <DialogTitle className="text-xl font-bold mb-4">
+            Charts for {selectedTrade?.symbol} -{" "}
+            {selectedTrade?.date.toLocaleDateString()}
+          </DialogTitle>
+          <div className="grid grid-cols-1 gap-4">
+            {tradeImages.length > 0 ? (
+              tradeImages.map((imagePath, index) => (
+                <div key={index} className="relative">
+                  <p className="text-xl font-bold">
+                    {" "}
+                    {imagePath.split("-")[4]}{" "}
+                  </p>
+                  <Image
+                    src={`/images-data/${imagePath}`}
+                    alt={`Chart ${index + 1}`}
+                    width={800}
+                    height={600}
+                    className="w-full h-auto rounded-lg"
+                  />
+                </div>
+              ))
+            ) : (
+              <p className="text-center text-gray-500">
+                No charts available for this trade
+              </p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
+    </>
   );
 };
 
@@ -314,7 +388,7 @@ export default function Home() {
           <span>{perf.trades.length}</span>{" "}
         </div>
         <div
-          className={`font-bold text-xl ${profitClass} flex justify-between items-baseline`}
+          className={`font-bold text-base ${profitClass} flex justify-between items-baseline`}
         >
           <span>${perf.netProfit.toFixed(2)}</span>
           <span>({perf.netProfitPercent.toFixed(2)}%)</span>
@@ -404,16 +478,10 @@ export default function Home() {
     (acc, trade) => {
       const dateStr = trade.date.toDateString();
 
-      // Track daily totals for max calculation
+      // Track daily totals for average calculation
       acc.dailyTotals.set(
         dateStr,
         (acc.dailyTotals.get(dateStr) || 0) + trade.totalBuyPrice
-      );
-
-      // Update max daily amount
-      acc.maxDailyAmount = Math.max(
-        acc.maxDailyAmount,
-        acc.dailyTotals.get(dateStr) || 0
       );
 
       if (!acc.tradingDays.has(dateStr)) {
@@ -458,6 +526,8 @@ export default function Home() {
         ...acc,
         totalBuyPrice: acc.totalBuyPrice + trade.totalBuyPrice,
         netTotal: acc.netTotal + trade.netTotal,
+        netInclCommission:
+          acc.netInclCommission + (trade.netInclCommission || 0),
         tradeCount: acc.tradeCount + 1,
         winCount: acc.winCount + (trade.netTotal > 0 ? 1 : 0),
         lossCount: acc.lossCount + (trade.netTotal < 0 ? 1 : 0),
@@ -498,12 +568,12 @@ export default function Home() {
             ? [...acc.losingHoldingTimes, holdingTimeMinutes]
             : acc.losingHoldingTimes,
         dailyTotals: acc.dailyTotals,
-        maxDailyAmount: acc.maxDailyAmount,
       };
     },
     {
       totalBuyPrice: 0,
       netTotal: 0,
+      netInclCommission: 0,
       tradeCount: 0,
       tradingDays: new Set<string>(),
       winCount: 0,
@@ -519,9 +589,22 @@ export default function Home() {
       winningHoldingTimes: [] as number[],
       losingHoldingTimes: [] as number[],
       dailyTotals: new Map<string, number>(),
-      maxDailyAmount: 0,
     }
   );
+
+  // Calculate average daily traded amount
+  const avgDailyAmount =
+    stats.tradingDays.size > 0
+      ? stats.totalBuyPrice / stats.tradingDays.size
+      : 0;
+
+  // Calculate percentages using average daily
+  const totalPercentage = avgDailyAmount
+    ? (stats.netTotal / avgDailyAmount) * 100
+    : 0;
+  const totalPercentageInclCommission = avgDailyAmount
+    ? (stats.netInclCommission / avgDailyAmount) * 100
+    : 0;
 
   // Calculate average percentages
   const avgWinPercent = stats.winningTrades.length
@@ -532,8 +615,6 @@ export default function Home() {
   const avgLossPercent = stats.losingTrades.length
     ? stats.losingTrades.reduce((a, b) => a + b, 0) / stats.losingTrades.length
     : 0;
-
-  const totalPercentage = (stats.netTotal / stats.maxDailyAmount) * 100;
 
   // Calculate average holding times
   const formatHoldingTime = (minutes: number) => {
@@ -568,8 +649,8 @@ export default function Home() {
           <div className={`${theme === "dark" ? "text-white" : "text-black"}`}>
             <div className="text-sm opacity-80">
               {stats.tradeCount} Trades ({stats.tradingDays.size} Days) | Total
-              Traded: ${stats.totalBuyPrice.toFixed(2)} | Max Daily: $
-              {stats.maxDailyAmount.toFixed(2)}
+              Traded: ${stats.totalBuyPrice.toFixed(2)} | Avg Daily: $
+              {avgDailyAmount.toFixed(2)}
             </div>
             <div
               className={`text-lg font-semibold ${
@@ -583,6 +664,10 @@ export default function Home() {
               }`}
             >
               Net: ${stats.netTotal.toFixed(2)} ({totalPercentage.toFixed(2)}%)
+              <span className="ml-4">
+                Net Incl. Commission: ${stats.netInclCommission.toFixed(2)} (
+                {totalPercentageInclCommission.toFixed(2)}%)
+              </span>
             </div>
           </div>
         </div>
@@ -595,7 +680,7 @@ export default function Home() {
               theme === "dark"
                 ? "bg-green-800 hover:bg-green-900 text-white"
                 : "bg-green-300 hover:bg-green-200 text-black"
-            } px-4 py-2 rounded-lg cursor-pointer`}
+            } px-4 py-2 rounded-lg cursor-pointer mr-10`}
           >
             {isLoading ? "Loading..." : "Load Trades"}
           </button>
@@ -644,9 +729,7 @@ export default function Home() {
                 />
                 <StatsRow
                   label="Average Trade"
-                  value={`$${(stats.netTotal / stats.tradeCount).toFixed(
-                    2
-                  )} (${totalPercentage.toFixed(2)}%)`}
+                  value={`$${(stats.netTotal / stats.tradeCount).toFixed(2)}`}
                   theme={theme}
                   isPositive={stats.netTotal > 0}
                 />
