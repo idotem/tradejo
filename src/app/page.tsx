@@ -489,6 +489,7 @@ export default function Home() {
       }
 
       const tradePercent = (trade.netTotal / trade.totalBuyPrice) * 100;
+      const perSharePnL = trade.averageSellPrice - trade.averageBuyPrice;
 
       // Calculate holding time in minutes with better time parsing
       let holdingTimeMinutes = 0;
@@ -559,6 +560,20 @@ export default function Home() {
           trade.netTotal < 0
             ? [...acc.losingTrades, tradePercent]
             : acc.losingTrades,
+        winningPerSharePnL:
+          trade.netTotal > 0
+            ? [...acc.winningPerSharePnL, perSharePnL]
+            : acc.winningPerSharePnL,
+        losingPerSharePnL:
+          trade.netTotal < 0
+            ? [...acc.losingPerSharePnL, perSharePnL]
+            : acc.losingPerSharePnL,
+        winningShares:
+          trade.netTotal > 0
+            ? acc.winningShares + trade.buys
+            : acc.winningShares,
+        losingShares:
+          trade.netTotal < 0 ? acc.losingShares + trade.buys : acc.losingShares,
         winningHoldingTimes:
           trade.netTotal > 0 && holdingTimeMinutes > 0
             ? [...acc.winningHoldingTimes, holdingTimeMinutes]
@@ -586,6 +601,10 @@ export default function Home() {
       largestLossAmount: Infinity,
       winningTrades: [] as number[],
       losingTrades: [] as number[],
+      winningPerSharePnL: [] as number[],
+      losingPerSharePnL: [] as number[],
+      winningShares: 0,
+      losingShares: 0,
       winningHoldingTimes: [] as number[],
       losingHoldingTimes: [] as number[],
       dailyTotals: new Map<string, number>(),
@@ -630,6 +649,23 @@ export default function Home() {
     ? stats.losingHoldingTimes.reduce((a, b) => a + b, 0) /
       stats.losingHoldingTimes.length
     : 0;
+
+  // Calculate average per share PnL
+  const avgWinPerShare = stats.winningPerSharePnL.length
+    ? stats.winningPerSharePnL.reduce((a, b) => a + b, 0) /
+      stats.winningPerSharePnL.length
+    : 0;
+
+  const avgLossPerShare = stats.losingPerSharePnL.length
+    ? stats.losingPerSharePnL.reduce((a, b) => a + b, 0) /
+      stats.losingPerSharePnL.length
+    : 0;
+
+  // Calculate average shares per trade
+  const avgSharesPerWin =
+    stats.winCount > 0 ? stats.winningShares / stats.winCount : 0;
+  const avgSharesPerLoss =
+    stats.lossCount > 0 ? stats.losingShares / stats.lossCount : 0;
 
   return (
     <div
@@ -793,6 +829,30 @@ export default function Home() {
                   label="Avg Loss Hold Time"
                   value={formatHoldingTime(avgLossHoldingTime)}
                   theme={theme}
+                />
+                <StatsRow
+                  label="Avg Win Per Share"
+                  value={`$${avgWinPerShare.toFixed(2)}`}
+                  theme={theme}
+                  isPositive={true}
+                />
+                <StatsRow
+                  label="Avg Loss Per Share"
+                  value={`$${avgLossPerShare.toFixed(2)}`}
+                  theme={theme}
+                  isPositive={false}
+                />
+                <StatsRow
+                  label="Avg Shares Per Win"
+                  value={avgSharesPerWin.toFixed(0)}
+                  theme={theme}
+                  isPositive={true}
+                />
+                <StatsRow
+                  label="Avg Shares Per Loss"
+                  value={avgSharesPerLoss.toFixed(0)}
+                  theme={theme}
+                  isPositive={false}
                 />
               </div>
             </>
