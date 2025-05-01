@@ -4,7 +4,6 @@ import MyImage from "../MyImage";
 
 export const findTradeImages = async (trade: Trade): Promise<string[]> => {
   try {
-    // Fetch the list of images from the API route
     const response = await fetch("/api/images");
     if (!response.ok) {
       throw new Error("Failed to fetch images");
@@ -25,20 +24,12 @@ export const findTradeImages = async (trade: Trade): Promise<string[]> => {
     console.log("IMAGES: ", images);
     console.log("TRADE: ", trade);
 
-    // Filter images based on the trade's date and symbol
     return images
-      .filter((image: MyImage) => {
-        if (image.symbol === trade.symbol) {
-          console.log("symbol true");
-        }
-        if (image.date.toDateString() === trade.date.toDateString()) {
-          console.log("date true");
-        }
-        return (
+      .filter(
+        (image: MyImage) =>
           image.date.toDateString() === trade.date.toDateString() &&
           image.symbol === trade.symbol
-        );
-      })
+      )
       .map((image: MyImage) => image.name);
   } catch (error) {
     console.error("Error finding trade images:", error);
