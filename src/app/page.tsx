@@ -118,6 +118,7 @@ const TradeDialog = ({ isOpen, onClose, trades }: TradeDialogProps) => {
     setIsLoadingImages(true);
     try {
       const images = await findTradeImages(trade);
+      console.log("Images for trade:", images);
       setTradeImages(images);
       setShowImages(true);
     } catch (error) {
