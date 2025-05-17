@@ -5,7 +5,7 @@ import { format, parse, startOfWeek, getDay } from "date-fns";
 import { enUS } from "date-fns/locale";
 import "react-big-calendar/lib/css/react-big-calendar.css";
 import "./calendar.css";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Trade from "./Trade";
 import ThemeToggle from "./ThemeToggle";
 import { useTheme } from "./ThemeContext";
@@ -188,11 +188,19 @@ const TradeDialog = ({ isOpen, onClose, trades }: TradeDialogProps) => {
                   >
                     <p>
                       <span className="font-semibold">Entry Time:</span>{" "}
-                      {trade.timeOfEntry}
+                      {trade.timeOfEntry.getHours() +
+                        ":" +
+                        trade.timeOfEntry.getMinutes() +
+                        ":" +
+                        trade.timeOfEntry.getSeconds()}
                     </p>
                     <p>
                       <span className="font-semibold">Exit Time:</span>{" "}
-                      {trade.timeOfExit}
+                      {trade.timeOfExit.getHours() +
+                        ":" +
+                        trade.timeOfExit.getMinutes() +
+                        ":" +
+                        trade.timeOfExit.getSeconds()}
                     </p>
                     <p>
                       <span className="font-semibold">Shares:</span>{" "}
@@ -234,14 +242,22 @@ const TradeDialog = ({ isOpen, onClose, trades }: TradeDialogProps) => {
                     }`}
                   >
                     <p className="whitespace-pre-wrap">
-                      <span className="font-semibold">Before Entry:</span>
-                      {"\n"}
-                      {trade.whatHappenedBeforeEnter}
+                      {trade.whatHappenedBeforeEnter ? (
+                        <span className="font-semibold">
+                          Before Entry: {trade.whatHappenedBeforeEnter}
+                        </span>
+                      ) : (
+                        ""
+                      )}
                     </p>
                     <p className="whitespace-pre-wrap">
-                      <span className="font-semibold">After Exit:</span>
-                      {"\n"}
-                      {trade.whatHappenedAfterExit}
+                      {trade.whatHappenedAfterExit ? (
+                        <span className="font-semibold">
+                          After Exit: {trade.whatHappenedAfterExit}
+                        </span>
+                      ) : (
+                        ""
+                      )}
                     </p>
                     <p className="whitespace-pre-wrap">
                       <span className="font-semibold">Comments:</span>
@@ -307,6 +323,7 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
+  const [selectedSheet, setSelectedSheet] = useState(2);
 
   // Add this useEffect to load trades from localStorage on component mount
   useEffect(() => {
@@ -318,6 +335,8 @@ export default function Home() {
         const parsedTrades = JSON.parse(storedTrades).map((trade: any) => ({
           ...trade,
           date: new Date(trade.date),
+          timeOfEntry: new Date(trade.timeOfEntry),
+          timeOfExit: new Date(trade.timeOfExit),
         }));
         setTrades(parsedTrades);
       } catch (err) {
@@ -326,15 +345,16 @@ export default function Home() {
     }
   }, []);
 
-  const loadTradesFromSheet = async () => {
+  const loadTradesFromSheet = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
       const sheetUrl = process.env.NEXT_PUBLIC_GOOGLE_SHEET_URL;
+
       if (!sheetUrl) {
         throw new Error("Google Sheet URL not configured");
       }
-      const fetchedTrades = await fetchTradesFromSheet(sheetUrl);
+      const fetchedTrades = await fetchTradesFromSheet(sheetUrl, selectedSheet);
 
       // Save trades to localStorage
       localStorage.setItem("trades", JSON.stringify(fetchedTrades));
@@ -345,7 +365,11 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [selectedSheet]);
+
+  useEffect(() => {
+    loadTradesFromSheet();
+  }, [selectedSheet, loadTradesFromSheet]);
 
   const calendarStyles = {
     height: "100%",
@@ -492,37 +516,9 @@ export default function Home() {
       const tradePercent = (trade.netTotal / trade.totalBuyPrice) * 100;
       const perSharePnL = trade.averageSellPrice - trade.averageBuyPrice;
 
-      // Calculate holding time in minutes with better time parsing
-      let holdingTimeMinutes = 0;
-      if (trade.timeOfEntry && trade.timeOfExit) {
-        try {
-          // Extract hours and minutes from Date string format
-          const entryMatch = trade.timeOfEntry.match(
-            /Date\(\d+,\d+,\d+,(\d+),(\d+),\d+\)/
-          );
-          const exitMatch = trade.timeOfExit.match(
-            /Date\(\d+,\d+,\d+,(\d+),(\d+),\d+\)/
-          );
-
-          if (entryMatch && exitMatch) {
-            const entryHours = parseInt(entryMatch[1]);
-            const entryMinutes = parseInt(entryMatch[2]);
-            const exitHours = parseInt(exitMatch[1]);
-            const exitMinutes = parseInt(exitMatch[2]);
-
-            holdingTimeMinutes =
-              exitHours * 60 + exitMinutes - (entryHours * 60 + entryMinutes);
-
-            // Handle cases where trade goes past midnight
-            if (holdingTimeMinutes < 0) {
-              holdingTimeMinutes += 24 * 60;
-            }
-          }
-        } catch (e) {
-          console.error("Error calculating holding time:", e);
-          console.error("Problem trade:", trade);
-        }
-      }
+      // Calculate holding time in minutes
+      const holdingTimeSeconds =
+        (trade.timeOfExit.getTime() - trade.timeOfEntry.getTime()) / 1000;
 
       return {
         ...acc,
@@ -575,13 +571,14 @@ export default function Home() {
             : acc.winningShares,
         losingShares:
           trade.netTotal < 0 ? acc.losingShares + trade.buys : acc.losingShares,
+        holdingTime: acc.holdingTime + holdingTimeSeconds,
         winningHoldingTimes:
-          trade.netTotal > 0 && holdingTimeMinutes > 0
-            ? [...acc.winningHoldingTimes, holdingTimeMinutes]
+          trade.netTotal > 0 && holdingTimeSeconds > 0
+            ? [...acc.winningHoldingTimes, holdingTimeSeconds]
             : acc.winningHoldingTimes,
         losingHoldingTimes:
-          trade.netTotal < 0 && holdingTimeMinutes > 0
-            ? [...acc.losingHoldingTimes, holdingTimeMinutes]
+          trade.netTotal < 0 && holdingTimeSeconds > 0
+            ? [...acc.losingHoldingTimes, holdingTimeSeconds]
             : acc.losingHoldingTimes,
         dailyTotals: acc.dailyTotals,
       };
@@ -606,6 +603,7 @@ export default function Home() {
       losingPerSharePnL: [] as number[],
       winningShares: 0,
       losingShares: 0,
+      holdingTime: 0,
       winningHoldingTimes: [] as number[],
       losingHoldingTimes: [] as number[],
       dailyTotals: new Map<string, number>(),
@@ -636,10 +634,17 @@ export default function Home() {
     ? stats.losingTrades.reduce((a, b) => a + b, 0) / stats.losingTrades.length
     : 0;
 
-  // Calculate average holding times
-  const formatHoldingTime = (minutes: number) => {
-    return `${Math.round(minutes)}m`;
+  const formatHoldingTime = (seconds: number) => {
+    // this has hours but I don't plan using it for longer trades.
+    // return `${Math.round(seconds / 3600)}h ${Math.round(
+    //   seconds / 60
+    // )}m ${Math.round(seconds % 60)}s`;
+    return `${Math.round(seconds / 60)}m ${Math.round(seconds % 60)}s`;
   };
+
+  const avgHoldingTime = stats.holdingTime
+    ? stats.holdingTime / stats.tradeCount
+    : 0;
 
   const avgWinHoldingTime = stats.winningHoldingTimes.length
     ? stats.winningHoldingTimes.reduce((a, b) => a + b, 0) /
@@ -709,18 +714,52 @@ export default function Home() {
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <DatePickerWithRange date={dateRange} setDate={setDateRange} />
+          <DatePickerWithRange
+            date={dateRange}
+            setDate={setDateRange}
+            theme={theme}
+          />
           <button
             onClick={loadTradesFromSheet}
             disabled={isLoading}
             className={`${
               theme === "dark"
-                ? "bg-green-800 hover:bg-green-900 text-white"
-                : "bg-green-300 hover:bg-green-200 text-black"
-            } px-4 py-2 rounded-lg cursor-pointer mr-10`}
+                ? "bg-cyan-600 hover:bg-cyan-800 text-white"
+                : "bg-cyan-300 hover:bg-cyan-200 text-black"
+            } px-4 py-2 rounded-lg cursor-pointer `}
           >
             {isLoading ? "Loading..." : "Load Trades"}
           </button>
+          <div className="flex items-center gap-2 mr-12">
+            <button
+              onClick={() => setSelectedSheet(1)}
+              className={`cursor-pointer w-8 h-8 rounded-sm flex items-center justify-center ${
+                selectedSheet === 1
+                  ? theme === "dark"
+                    ? "bg-cyan-600 text-white hover:bg-cyan-800"
+                    : "bg-cyan-300 text-black hover:bg-cyan-400"
+                  : theme === "dark"
+                  ? "bg-gray-700 text-white hover:bg-gray-800"
+                  : "bg-gray-300 text-black hover:bg-gray-400"
+              }`}
+            >
+              1
+            </button>
+            <button
+              onClick={() => setSelectedSheet(2)}
+              className={`cursor-pointer w-8 h-8 rounded-sm flex items-center justify-center ${
+                selectedSheet === 2
+                  ? theme === "dark"
+                    ? "bg-cyan-600 text-white hover:bg-cyan-800"
+                    : "bg-cyan-300 text-black hover:bg-cyan-400"
+                  : theme === "dark"
+                  ? "bg-gray-700 text-white hover:bg-gray-800"
+                  : "bg-gray-300 text-black hover:bg-gray-400"
+              }`}
+            >
+              2
+            </button>
+          </div>
           <ThemeToggle />
         </div>
       </div>
@@ -750,6 +789,13 @@ export default function Home() {
                   value={`${((stats.winCount / stats.tradeCount) * 100).toFixed(
                     1
                   )}%`}
+                  theme={theme}
+                />
+                <StatsRow
+                  label="Profit Factor"
+                  value={`${Math.abs(
+                    stats.totalProfit / (stats.totalLoss || 1)
+                  ).toFixed(2)}`}
                   theme={theme}
                 />
                 <StatsRow
@@ -787,38 +833,48 @@ export default function Home() {
                   isPositive={false}
                 />
                 <StatsRow
-                  label="Largest Win"
-                  value={`$${
-                    stats.largestWinAmount > -Infinity
-                      ? stats.largestWinAmount.toFixed(2)
-                      : "0.00"
-                  } (${
+                  label="Largest Win Percent"
+                  value={`${
                     stats.largestWinPercent > -Infinity
                       ? stats.largestWinPercent.toFixed(2)
                       : "0.00"
-                  }%)`}
+                  }%`}
                   theme={theme}
                   isPositive={true}
                 />
                 <StatsRow
-                  label="Largest Loss"
+                  label="Largest Win Amount"
                   value={`$${
-                    stats.largestLossAmount < Infinity
-                      ? stats.largestLossAmount.toFixed(2)
+                    stats.largestWinAmount > -Infinity
+                      ? stats.largestWinAmount.toFixed(2)
                       : "0.00"
-                  } (${
+                  }`}
+                  theme={theme}
+                  isPositive={true}
+                />
+                <StatsRow
+                  label="Largest Loss Percent"
+                  value={`${
                     stats.largestLossPercent < Infinity
                       ? stats.largestLossPercent.toFixed(2)
                       : "0.00"
-                  }%)`}
+                  }%`}
                   theme={theme}
                   isPositive={false}
                 />
                 <StatsRow
-                  label="Profit Factor"
-                  value={`${Math.abs(
-                    stats.totalProfit / (stats.totalLoss || 1)
-                  ).toFixed(2)}`}
+                  label="Largest Loss Amount"
+                  value={`$${
+                    stats.largestLossAmount < Infinity
+                      ? stats.largestLossAmount.toFixed(2)
+                      : "0.00"
+                  }`}
+                  theme={theme}
+                  isPositive={false}
+                />
+                <StatsRow
+                  label="Avg Hold Time"
+                  value={formatHoldingTime(avgHoldingTime)}
                   theme={theme}
                 />
                 <StatsRow

@@ -1,7 +1,10 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import Trade from "../Trade";
 
-export async function fetchTradesFromSheet(sheetUrl: string): Promise<Trade[]> {
+export async function fetchTradesFromSheet(
+  sheetUrl: string,
+  selectedSheet: number
+): Promise<Trade[]> {
   // Extract the sheet ID from the URL
   const sheetId = extractSheetId(sheetUrl);
   if (!sheetId) {
@@ -9,7 +12,7 @@ export async function fetchTradesFromSheet(sheetUrl: string): Promise<Trade[]> {
   }
 
   // Construct the export URL
-  const exportUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json`;
+  const exportUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/gviz/tq?tqx=out:json&sheet=${selectedSheet}`;
 
   try {
     const response = await fetch(exportUrl);
@@ -41,6 +44,8 @@ function transformToTrades(table: any): Trade[] {
 
     // Get the date value
     const dateValue = rowData[headers.indexOf("Date")];
+    const timeOfEntryNotParsed = rowData[headers.indexOf("Time of entry")];
+    const timeOfExitNotParsed = rowData[headers.indexOf("Time of exit")];
 
     // Skip rows where date is null
     if (!dateValue) {
@@ -50,21 +55,54 @@ function transformToTrades(table: any): Trade[] {
     // Convert the date format
     // The date comes as Date(2025,2,19) where months are 0-based
     const dateMatch = dateValue.match(/Date\((\d+),(\d+),(\d+)\)/);
+    const timeOfEntryMatch = timeOfEntryNotParsed.match(
+      /Date\((\d+),(\d+),(\d+),(\d+),(\d+),(\d+)\)/
+    );
+    const timeOfExitMatch = timeOfExitNotParsed.match(
+      /Date\((\d+),(\d+),(\d+),(\d+),(\d+),(\d+)\)/
+    );
     if (!dateMatch) {
       console.warn("Invalid date format:", dateValue);
+      return;
+    }
+    if (!timeOfEntryMatch || !timeOfExitMatch) {
+      console.warn(
+        "Invalid time format: ",
+        timeOfEntryNotParsed,
+        ", ",
+        timeOfExitNotParsed
+      );
       return;
     }
 
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     const [_, year, month, day] = dateMatch;
+    const [, , , , entryHour, entryMinute, entrySecond] = timeOfEntryMatch;
+    const [, , , , exitHour, exitMinute, exitSecond] = timeOfExitMatch;
     const date = new Date(Number(year), Number(month), Number(day));
+    const timeOfEntry = new Date(
+      Number(year),
+      Number(month),
+      Number(day),
+      Number(entryHour),
+      Number(entryMinute),
+      Number(entrySecond)
+    );
+    const timeOfExit = new Date(
+      Number(year),
+      Number(month),
+      Number(day),
+      Number(exitHour),
+      Number(exitMinute),
+      Number(exitSecond)
+    );
 
     const trade: Trade = {
       id: trades.length, // Generate sequential IDs
       symbol: rowData[headers.indexOf("Symbol")],
       date: date,
-      timeOfEntry: rowData[headers.indexOf("Time of entry")],
-      timeOfExit: rowData[headers.indexOf("Time of exit")],
+      timeOfEntry: timeOfEntry,
+      timeOfExit: timeOfExit,
       buys: Number(rowData[headers.indexOf("Buys")]),
       sells: Number(rowData[headers.indexOf("Sells")]),
       net: Number(rowData[headers.indexOf("Net")]),
@@ -84,6 +122,7 @@ function transformToTrades(table: any): Trade[] {
       whatHappenedAfterExit:
         rowData[headers.indexOf("What happened after exit")] || "",
       comment: rowData[headers.indexOf("Comment")] || "",
+      onWork: rowData[headers.indexOf("On work")] === "TRUE" ? true : false,
     };
     console.log("TRADE: ", trade);
     trades.push(trade);

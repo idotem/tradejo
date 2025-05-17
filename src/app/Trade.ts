@@ -2,8 +2,8 @@ type Trade = {
   id: number;
   symbol: string;
   date: Date;
-  timeOfEntry: string;
-  timeOfExit: string;
+  timeOfEntry: Date;
+  timeOfExit: Date;
   buys: number;
   sells: number;
   net: number;
@@ -19,6 +19,7 @@ type Trade = {
   whatHappenedBeforeEnter: string;
   whatHappenedAfterExit: string;
   comment: string;
+  onWork: boolean;
 };
 
 export default Trade;
