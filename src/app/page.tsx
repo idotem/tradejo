@@ -639,7 +639,7 @@ export default function Home() {
     // return `${Math.round(seconds / 3600)}h ${Math.round(
     //   seconds / 60
     // )}m ${Math.round(seconds % 60)}s`;
-    return `${Math.round(seconds / 60)}m ${Math.round(seconds % 60)}s`;
+    return `${Math.floor(seconds / 60)}m ${Math.round(seconds % 60)}s`;
   };
 
   const avgHoldingTime = stats.holdingTime
